@@ -1,0 +1,7 @@
+sherpa-onnx
+sounddevice~=0.5.5
+numpy~=2.4.3
+openai~=2.29.0
+websockets~=16.0
+sherpa_onnx~=1.12.33
+pyvts~=0.3.3

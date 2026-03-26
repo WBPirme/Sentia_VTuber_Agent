@@ -1,0 +1,26 @@
+# 1. IDE 与 Python 缓存
+.idea/
+__pycache__/
+*.py[cod]
+
+# 2. 虚拟环境 (绝对不能传，动辄几个G)
+.venv/
+env/
+.env/
+
+# 3. 大模型权重与数据集 (408 超时的罪魁祸首)
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.onnx
+datasets/
+models/
+logs/
+runs/
+engine/
+
+# 4. 媒体资产与工程文件
+*.psd
+*.wav
+*.mp4
