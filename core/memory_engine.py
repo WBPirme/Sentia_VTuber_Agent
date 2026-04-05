@@ -1,11 +1,38 @@
 import os
+import warnings
+import sys
 import chromadb
 from chromadb.utils import embedding_functions
 from datetime import datetime
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+warnings.filterwarnings("ignore")
+
 import logging
+
 logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+class DevNull:
+    def write(self, msg): pass
+
+    def flush(self): pass
+
+
+# 拦截 C++ 底层红字
+original_stderr = sys.stderr
+sys.stderr = DevNull()
+
+# 触发模型加载，屏蔽警告
+embedding_fn_instance = embedding_functions.SentenceTransformerEmbeddingFunction(
+    model_name="BAAI/bge-small-zh-v1.5"
+)
+
+# 恢复 stderr
+sys.stderr = original_stderr
+
 
 
 class SentiaMemory:
@@ -19,9 +46,7 @@ class SentiaMemory:
         self.client = chromadb.PersistentClient(path=self.db_path)
 
         try:
-            self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="BAAI/bge-small-zh-v1.5"
-            )
+            self.embedding_fn = embedding_fn_instance
             self.collection = self.client.get_or_create_collection(
                 name="sentia_long_term_memory",
                 embedding_function=self.embedding_fn
@@ -38,13 +63,10 @@ class SentiaMemory:
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
     def write_memory(self, event_description, emotion_tag="Neutral", importance=1):
-        """记录重要事件到本地向量数据库"""
         if not self.is_ready: return
-
         memory_id = f"mem_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         timestamp = self._get_timestamp()
         memory_text = f"[{timestamp}] [Emotion:{emotion_tag}] {event_description}"
-
         try:
             self.collection.add(
                 documents=[memory_text],
@@ -57,41 +79,25 @@ class SentiaMemory:
             print(f"[Warning] 记忆写入失败: {e}")
 
     def recall_memory(self, query_text, n_results=2):
-        """根据当前话题进行向量检索"""
-        if not self.is_ready or self.collection.count() == 0:
-            return ""
-
+        if not self.is_ready or self.collection.count() == 0: return ""
         try:
             results = self.collection.query(
-                query_texts=[query_text],
-                n_results=min(n_results, self.collection.count())
+                query_texts=[query_text], n_results=min(n_results, self.collection.count())
             )
             documents = results.get('documents', [[]])[0]
-
-            if not documents:
-                return ""
-
-            recalled_text = "[检索到的长期历史记忆]:\n" + "\n".join(documents)
-            return recalled_text
-
+            if not documents: return ""
+            return "[检索到的长期历史记忆]：\n" + "\n".join(documents)
         except Exception as e:
             print(f"[Warning] 记忆检索失败: {e}")
             return ""
 
     def get_last_shutdown_memory(self):
-        """检索最后一次因愤怒导致关机的记录"""
-        if not self.is_ready or self.collection.count() == 0:
-            return ""
-
+        if not self.is_ready or self.collection.count() == 0: return ""
         try:
-            results = self.collection.get(
-                where={"importance": 5},
-                limit=1
-            )
+            results = self.collection.get(where={"importance": 5}, limit=1)
             if results and results.get('documents'):
                 last_event = results['documents'][-1]
-                return f"[极其重要的历史情绪残留]: 在你上次运行程序时，发生了这件事 -> {last_event}。你在说第一句话时，必须极其强烈地带入这个情绪进行回复！"
+                return f"[极其重要的历史情绪残留]：在你上次运行程序时，发生了这件事 -> {last_event}。你在说第一句话时，必须极其强烈地带入这个情绪进行回复！"
             return ""
-
         except Exception:
             return ""
