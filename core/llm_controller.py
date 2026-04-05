@@ -37,7 +37,7 @@ class LlamaEngineController:
         while time.time() - start_time < timeout:
             try:
                 if urllib.request.urlopen(url, timeout=1).getcode() == 200:
-                    print(f" 神经网络已就绪！(耗时: {time.time() - start_time:.1f}秒)")
+                    print(f" 大模型已就绪！(耗时: {time.time() - start_time:.1f}秒)")
                     return True
             except:
                 time.sleep(0.5)

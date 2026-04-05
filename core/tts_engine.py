@@ -5,7 +5,7 @@ import numpy as np
 
 class SentiaVoice:
     def __init__(self, base_dir, model_name="G_28300.onnx"):
-        print(" 正在加载 Sentia 专属声带...")
+        print(" 正在加载 Sherpa-ONNX 语音模型...")
         models_dir = os.path.join(base_dir, "models")
         assets_dir = os.path.join(base_dir, "assets")
 
@@ -30,9 +30,9 @@ class SentiaVoice:
                 ),
             )
             self.tts = sherpa_onnx.OfflineTts(tts_config)
-            print(" 声带加载成功！")
+            print(" TTS 加载成功！")
         except Exception as e:
-            print(f" 声带加载失败！报错: {e}")
+            print(f" TTS 加载失败！报错: {e}")
             self.tts = None
 
     def generate_audio_data(self, text, speed=1.1):

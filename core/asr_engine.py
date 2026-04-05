@@ -26,7 +26,7 @@ class SentiaEar:
                 provider="cpu"
             )
         except Exception as e:
-            print(f" 听觉加载失败！请检查 models 目录。\n报错: {e}")
+            print(f" ASR 加载失败！请检查 models 目录。\n报错: {e}")
             self.recognizer = None
 
         self.sample_rate = 16000
