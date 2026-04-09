@@ -20,7 +20,7 @@ class SentiaEar:
                 num_threads=2,
                 sample_rate=16000,
                 feature_dim=80,
-                rule1_min_trailing_silence=2.4,  # 放宽停顿时间，适合按键对讲
+                rule1_min_trailing_silence=2.4,
                 rule2_min_trailing_silence=1.2,
                 rule3_min_utterance_length=30.0,
                 provider="cpu"
@@ -43,47 +43,53 @@ class SentiaEar:
             except queue.Empty:
                 break
 
+    def _get_stream_text(self, stream):
+        text = self.recognizer.get_result(stream)
+        return text.strip() if text else ""
+
     def listen(self, stop_event=None):
         if not self.recognizer:
             return ""
 
-        # 优雅轮询：每 0.05 秒检查一次空格键或停止信号，避免堆积后台线程
-        while True:
+        try:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return ""
+                if keyboard.is_pressed('space'):
+                    break
+                time.sleep(0.05)
+
+            self._clear_audio_queue()
+            print("\n [录音中... 请保持按住空格，松开发送]")
+            stream = self.recognizer.create_stream()
+            last_text = ""
+
+            with sd.InputStream(channels=1, dtype="float32", samplerate=self.sample_rate, callback=self._audio_callback):
+                while keyboard.is_pressed('space'):
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    try:
+                        chunk = self.audio_queue.get_nowait()
+                        stream.accept_waveform(self.sample_rate, chunk)
+                        while self.recognizer.is_ready(stream):
+                            self.recognizer.decode_stream(stream)
+
+                        current_text = self._get_stream_text(stream)
+                        if current_text and current_text != last_text:
+                            print(f"\r 听到: {current_text}", end="", flush=True)
+                            last_text = current_text
+                    except queue.Empty:
+                        time.sleep(0.001)
+
             if stop_event is not None and stop_event.is_set():
                 return ""
-            if keyboard.is_pressed('space'):
-                break
-            time.sleep(0.05)
 
-        self._clear_audio_queue()
-        print("\n [录音中... 请保持按住空格，松开发送]")
-        stream = self.recognizer.create_stream()
-        last_text = ""
+            print("\n [松开按键，录音结束]")
+            stream.input_finished()
+            while self.recognizer.is_ready(stream):
+                self.recognizer.decode_stream(stream)
 
-        with sd.InputStream(channels=1, dtype="float32", samplerate=self.sample_rate, callback=self._audio_callback):
-            while keyboard.is_pressed('space'):
-                if stop_event is not None and stop_event.is_set():
-                    break
-                try:
-                    chunk = self.audio_queue.get_nowait()
-                    stream.accept_waveform(self.sample_rate, chunk)
-                    while self.recognizer.is_ready(stream):
-                        self.recognizer.decode_stream(stream)
-
-                    current_text = stream.text
-                    if current_text and current_text != last_text:
-                        print(f"\r 听到: {current_text}", end="", flush=True)
-                        last_text = current_text
-                except queue.Empty:
-                    time.sleep(0.001)
-
-        if stop_event is not None and stop_event.is_set():
+            return self._get_stream_text(stream)
+        except Exception as e:
+            print(f"\n[ASR Warning] 语音输入失败，已回退为键盘输入: {e}")
             return ""
-
-        print("\n [松开按键，录音结束]")
-        stream.input_finished()
-        while self.recognizer.is_ready(stream):
-            self.recognizer.decode_stream(stream)
-
-        final_text = stream.text
-        return final_text.strip() if final_text else ""

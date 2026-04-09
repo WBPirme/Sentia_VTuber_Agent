@@ -76,6 +76,15 @@ def parse_args():
     delete_parser = subparsers.add_parser("delete", help="Delete memory records by id.")
     delete_parser.add_argument("ids", nargs="+")
 
+    if len(sys.argv) == 1:
+        parser.print_help()
+        print("\nExamples:")
+        print("  .\\.venv\\Scripts\\python.exe .\\tools\\memory_admin.py list --limit 10")
+        print("  .\\.venv\\Scripts\\python.exe .\\tools\\memory_admin.py search \"你好\" --limit 5")
+        print("  .\\.venv\\Scripts\\python.exe .\\tools\\memory_admin.py dump --output E:\\Sentia\\models\\memory_db\\memory_dump.json")
+        print("  .\\.venv\\Scripts\\python.exe .\\tools\\memory_admin.py prune --contains 关机 --dry-run")
+        sys.exit(0)
+
     return parser.parse_args()
 
 

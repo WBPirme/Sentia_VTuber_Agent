@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import sys
+import re
 import sounddevice as sd
 import time
 import subprocess
@@ -148,7 +149,44 @@ async def listen_with_timeout(ear, timeout):
         raise
 
 
-def select_model_with_timeout(timeout=5):
+def parse_llm_response(reply_raw):
+    cleaned_raw = (
+        reply_raw.replace("：", ":")
+        .replace("“", '"')
+        .replace("”", '"')
+    )
+
+    start_idx = cleaned_raw.find("{")
+    end_idx = cleaned_raw.rfind("}") + 1
+    if start_idx != -1 and end_idx != 0:
+        candidate = cleaned_raw[start_idx:end_idx]
+        return json.loads(candidate)
+
+    parsed = {}
+    field_matches = list(
+        re.finditer(r"\b(text|emotion|action|patience)\s*:", cleaned_raw, flags=re.IGNORECASE)
+    )
+    for index, match in enumerate(field_matches):
+        key = match.group(1).lower()
+        value_start = match.end()
+        value_end = field_matches[index + 1].start() if index + 1 < len(field_matches) else len(cleaned_raw)
+        value = cleaned_raw[value_start:value_end].strip()
+        if key == "text":
+            parsed[key] = value.rstrip("。!！?？")
+        elif key == "patience":
+            patience_match = re.search(r"-?\d+", value)
+            if patience_match:
+                parsed[key] = patience_match.group(0)
+        else:
+            parsed[key] = re.split(r"[\s,，。!！?？]+", value, maxsplit=1)[0]
+
+    if "text" not in parsed:
+        raise json.JSONDecodeError("未发现 JSON 对象或备用字段", cleaned_raw, 0)
+
+    return parsed
+
+
+def select_model_with_timeout(timeout=10):
     model_1 = "Sentia-9B-FP16.gguf"
     model_2 = "Sentia-Q4_K_M.gguf"
 
@@ -200,11 +238,8 @@ async def start_vtube_studio():
 
 async def main():
     selected_gguf = select_model_with_timeout(5)
-
-    # 1. 自动启动躯壳
     await start_vtube_studio()
 
-    # 2. 唤醒所有器官
     print("[System] 正在初始化 VTube Studio 躯干控制模块...")
     body = VTSController()
     await body.connect_and_auth()
@@ -219,14 +254,12 @@ async def main():
     if ear.recognizer is None:
         return
 
-    # 持久化记忆
     memory = SentiaMemory(BASE_DIR)
 
     print(f"[System] 正在后台异步分配显存并唤醒大模型 ({selected_gguf})...")
     llm_controller = LlamaEngineController(BASE_DIR, model_name=selected_gguf)
     await asyncio.to_thread(llm_controller.start)
 
-    # 3. 建立中枢连接与加载记忆
     client = OpenAI(base_url="http://localhost:8099/v1", api_key="sentia-local")
 
     grudge_context = ""
@@ -297,7 +330,6 @@ async def main():
                             await asyncio.sleep(len(audio_data) / sr)
                         break
 
-                    # 检索长期记忆
                     recalled_info = ""
                     if memory.is_ready:
                         recalled_info = await asyncio.to_thread(memory.recall_memory, user_input)
@@ -322,6 +354,10 @@ async def main():
                         hidden_context = f"[系统级感知：连续 {unanswered_attempts} 次彻底无视了你。你现在极度愤怒。请大发雷霆，或直接下达 'Shutdown' 指令关闭程序！]"
 
                     append_chat_message(chat_history, "user", hidden_context)
+                except Exception as input_err:
+                    print(f"\n[Input Warning] 输入阶段出现异常，已回退到下一轮等待: {input_err}")
+                    await asyncio.sleep(0.2)
+                    continue
 
             else:
                 print("\n倒计时 60 秒等待...")
@@ -354,12 +390,7 @@ async def main():
                 append_chat_message(chat_history, "assistant", reply_raw)
 
                 try:
-                    cleaned_raw = reply_raw.replace("，", ",").replace("“", '"').replace("”", '"')
-                    start_idx, end_idx = cleaned_raw.find("{"), cleaned_raw.rfind("}") + 1
-                    if start_idx != -1 and end_idx != 0:
-                        cleaned_raw = cleaned_raw[start_idx:end_idx]
-
-                    reply_json = json.loads(cleaned_raw)
+                    reply_json = parse_llm_response(reply_raw)
                     speak_text = reply_json.get("text", "Error parsing thought")
                     emotion = reply_json.get("emotion", "Neutral")
                     action = reply_json.get("action", "Speak")
@@ -385,7 +416,6 @@ async def main():
                             await body.animate_speech_lip_sync(audio_data, sr, emotion=emotion)
                         await asyncio.sleep(len(audio_data) / sr + 0.2)
 
-                    # ================= 动作裁决 =================
                     if action == "Shutdown" and not is_ghost_mode:
                         print("\n[Alert] 接收到 Shutdown 关机指令，正在关闭 VTube Studio 进程...")
                         memory.write_memory("极度冷漠，我极其愤怒，直接强行关机。", emotion_tag="Angry", importance=5)
