@@ -9,7 +9,6 @@ import time
 import subprocess
 from openai import OpenAI
 import msvcrt
-import threading
 import queue
 import threading
 
