@@ -1,6 +1,7 @@
 import os
 import sherpa_onnx
 import numpy as np
+import re
 
 
 class SentiaVoice:
@@ -59,6 +60,11 @@ class SentiaVoice:
 
     def generate_audio_data(self, text, speed=0.85):
         if not self.tts or not text or text.strip() == "":
+            return None, None
+
+        text = re.sub(r'[a-zA-Z\{\}\[\]\"\'\\_:=]+', '', text).strip()
+
+        if not text:
             return None, None
 
         audio = self.tts.generate(text, sid=0, speed=speed)

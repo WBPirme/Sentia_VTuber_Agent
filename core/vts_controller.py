@@ -5,6 +5,8 @@ import math
 import time
 import json
 
+from aiofiles import os
+
 
 class VTSController:
     def __init__(self):
@@ -49,8 +51,24 @@ class VTSController:
         print("正在连接 VTube Studio API")
         try:
             await self.vts.connect()
+
             await self.vts.request_authenticate_token()
-            await self.vts.request_authenticate()
+            auth_response = await self.vts.request_authenticate()
+
+            if isinstance(auth_response, dict) and "data" in auth_response:
+                if auth_response["data"].get("authenticated") is False:
+                    print("警告：检测到本地的 VTS Token 已过期或被撤销")
+                    print("正在清理旧的通行证缓存...")
+
+                    # 物理销毁那张过期的废纸！
+                    token_path = self.plugin_info.get("authentication_token_path", "./vts_token.txt")
+                    if os.path.exists(token_path):
+                        os.remove(token_path)
+
+                    print("正在重新申请授权！请立刻前往 VTube Studio 软件中，点击弹出的【允许】按钮！")
+
+                    await self.vts.request_authenticate_token()
+                    await self.vts.request_authenticate()
             print("连接成功")
 
             for param in self.custom_params:
@@ -117,7 +135,7 @@ class VTSController:
             end_idx = start_idx + chunk_size
             chunk = audio_samples[start_idx:end_idx]
 
-            # 2. 真实计算论文中提到的均方根 (RMS) 能量
+            # 2. 均方根 (RMS) 能量
             rms = math.sqrt(sum(x * x for x in chunk) / len(chunk)) if len(chunk) > 0 else 0.0
 
             # 3. 将 RMS 归一化放大为口型张合度 (可根据实际音量微调 3.0 这个系数)

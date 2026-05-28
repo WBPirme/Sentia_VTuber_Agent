@@ -10,6 +10,8 @@ import subprocess
 from openai import OpenAI
 import msvcrt
 import threading
+import queue
+import threading
 
 from core.llm_controller import LlamaEngineController
 from core.tts_engine import SentiaVoice
@@ -82,45 +84,38 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+_input_queue = queue.Queue()
+_input_thread_started = False
+
+def _keyboard_worker():
+
+    while True:
+        try:
+            line = sys.stdin.readline()
+            _input_queue.put(line.strip())
+        except Exception:
+            break
 
 async def async_input(prompt, stop_event=None):
+    global _input_thread_started
+    if not _input_thread_started:
+        t = threading.Thread(target=_keyboard_worker, daemon=True)
+        t.start()
+        _input_thread_started = True
+
     sys.stdout.write(prompt)
     sys.stdout.flush()
-    chars = []
 
     while True:
         if stop_event is not None and stop_event.is_set():
-            if chars:
-                print()
+            print()
             return ""
 
-        if msvcrt.kbhit():
-            char = msvcrt.getwch()
-
-            if char == "\003":
-                raise KeyboardInterrupt
-
-            if char in ("\r", "\n"):
-                print()
-                return "".join(chars).strip()
-
-            if char == "\b":
-                if chars:
-                    chars.pop()
-                    sys.stdout.write("\b \b")
-                    sys.stdout.flush()
-                continue
-
-            if char in ("\x00", "\xe0"):
-                if msvcrt.kbhit():
-                    msvcrt.getwch()
-                continue
-
-            chars.append(char)
-            sys.stdout.write(char)
-            sys.stdout.flush()
-
-        await asyncio.sleep(0.05)
+        try:
+            text = _input_queue.get_nowait()
+            return text
+        except queue.Empty:
+            await asyncio.sleep(0.05)
 
 
 def _compact_message(message):
@@ -407,7 +402,7 @@ def select_model_with_timeout(timeout=10):
 
 
 async def start_vtube_studio():
-    print("[System] 尝试拉起 VTube Studio 宿主程序...")
+    print("[System] 尝试拉起 VTube Studio ...")
     check_task = subprocess.run('tasklist /FI "IMAGENAME eq VTube Studio.exe"', capture_output=True, text=True)
     if "VTube Studio.exe" in check_task.stdout:
         print("[System] VTube Studio 已在后台运行，跳过启动流程。")
@@ -425,7 +420,7 @@ async def main():
     selected_gguf = select_model_with_timeout(5)
     await start_vtube_studio()
 
-    print("[System] 正在初始化 VTube Studio 躯干控制模块...")
+    print("[System] 正在初始化 VTube Studio ...")
     body = VTSController()
     await body.connect_and_auth()
 
@@ -575,9 +570,9 @@ async def main():
                 reply_raw = response.choices[0].message.content
                 append_chat_message(chat_history, "assistant", reply_raw)
 
-                print("\n" + "-" * 40)
-                print(f"[原生输出] \n{response.model_dump_json(indent=2)}")
-                print("-" * 40 + "\n")
+                #print("\n" + "-" * 40)
+                #print(f"[原生输出] \n{response.model_dump_json(indent=2)}")
+                #print("-" * 40 + "\n")
 
                 try:
                     reply_json, used_text_fallback = extract_reply_payload(

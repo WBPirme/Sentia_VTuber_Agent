@@ -16,14 +16,34 @@ class LlamaEngineController:
         self.process = None
 
     def _sniff_hardware(self):
-        if platform.system() != "Windows": return "llama.cpp-cpu"
+
+        if platform.system() != "Windows":
+            return "llama.cpp-cpu"
+
+        preferred_chain = []
         try:
             output = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode().upper()
-            if "NVIDIA" in output: return "llama.cpp-cuda12"
-            if "AMD" in output or "RADEON" in output: return "llama.cpp-hip"
-            if "INTEL" in output: return "llama.cpp-vulkan"
+
+            if "NVIDIA" in output:
+                # 优先 CUDA12 -> 没有就退到 CUDA13 -> 再没有退到 Vulkan -> 最终保底 CPU
+                preferred_chain = ["llama.cpp-cuda12", "llama.cpp-cuda13", "llama.cpp-vulkan", "llama.cpp-cpu"]
+            elif "AMD" in output or "RADEON" in output:
+                # 优先 HIP -> 没有就退到 Vulkan -> 最终保底 CPU
+                preferred_chain = ["llama.cpp-hip", "llama.cpp-vulkan", "llama.cpp-cpu"]
+            elif "INTEL" in output:
+                # 优先 Vulkan -> 最终保底 CPU
+                preferred_chain = ["llama.cpp-vulkan", "llama.cpp-cpu"]
+            else:
+                preferred_chain = ["llama.cpp-cpu"]
         except:
-            pass
+            preferred_chain = ["llama.cpp-cpu"]
+
+        for engine in preferred_chain:
+            exe_path = os.path.join(self.engine_root, engine, "llama-server.exe")
+            if os.path.exists(exe_path):
+                if engine != preferred_chain[0]:
+                    print(f"未找到首选引擎，已自动降级适配至: {engine}")
+                return engine
         return "llama.cpp-cpu"
 
     def is_port_in_use(self):
@@ -59,7 +79,7 @@ class LlamaEngineController:
 
         cmd = [
             exe_path, "-m", self.model_path, "-ngl", layers,
-            "--port", str(self.port), "--chat-template", "chatml"
+            "--port", str(self.port), "--chat-template", "chatml","-fit", "off"
         ]
 
         env = os.environ.copy()
